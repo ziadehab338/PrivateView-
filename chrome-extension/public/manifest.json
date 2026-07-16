@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "PrivateView",
+  "version": "0.1.0",
+  "description": "Protect sensitive information while sharing your screen.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_title": "PrivateView",
+    "default_popup": "index.html"
+  }
+}
