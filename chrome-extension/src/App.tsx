@@ -312,7 +312,73 @@ function disableSpotlightBlur(
     .getElementById(overlayId)
     ?.remove();
 }
+function showPrivateViewToast(): void {
+  document.getElementById("privateview-toast")?.remove();
 
+  const toast = document.createElement("div");
+  toast.id = "privateview-toast";
+
+  Object.assign(toast.style, {
+    position: "fixed",
+    top: "60px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: "2147483647",
+
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+
+    padding: "14px 22px",
+
+    background: "rgba(40,40,40,.96)",
+    color: "#fff",
+
+    borderRadius: "4px",
+
+    fontFamily: "Arial,sans-serif",
+    fontSize: "17px",
+
+    boxShadow: "0 8px 25px rgba(0,0,0,.35)",
+
+    opacity: "1",
+  });
+
+  const text = document.createElement("span");
+  text.textContent =
+    " 👁️ PrivateView is active — to disable protection, press";
+
+  const key = document.createElement("span");
+
+  Object.assign(key.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+
+    minWidth: "40px",
+    height: "40px",
+
+    padding: "0 10px",
+
+    border: "1px solid rgba(255,255,255,.7)",
+    borderRadius: "3px",
+
+    background: "rgba(255,255,255,.05)",
+
+    fontSize: "22px",
+    fontWeight: "500",
+  });
+
+  key.textContent = "Esc";
+
+  toast.append(text, key);
+
+  document.documentElement.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 4750);
+}
 /* =========================
    Selection Mode
 ========================= */
@@ -358,7 +424,8 @@ function startSelectionPicker(
     background:
       'rgba(139, 124, 255, 0.12)',
     boxShadow:
-      '0 0 0 1px rgba(255,255,255,0.25), 0 0 25px rgba(124,108,255,0.40)',
+      '0 0 0 1px rgba(255,255,255,0.25), ' +
+      '0 0 25px rgba(124,108,255,0.40)',
     pointerEvents: 'none',
   });
 
@@ -387,6 +454,8 @@ function startSelectionPicker(
       background:
         'rgba(5, 8, 18, 0.08)',
       pointerEvents: 'none',
+      transition:
+      'mask-image 180ms ease, -webkit-mask-image 180ms ease, opacity 180ms ease',
       ...styles,
     });
 
@@ -401,6 +470,498 @@ function startSelectionPicker(
     );
 
     return panel;
+  };
+
+  const enableSmartCursorReveal = (
+    selectionRoot: HTMLDivElement,
+  ): void => {
+    type PrivateViewWindow = Window & {
+      __privateViewSelectionMouseMove?: (
+        event: MouseEvent,
+      ) => void;
+
+      __privateViewSelectionObserver?:
+        MutationObserver;
+
+      __privateViewSelectionFrame?: number;
+    };
+
+    const privateWindow =
+      window as PrivateViewWindow;
+
+    // Remove listeners left by an old selection.
+    if (
+      privateWindow
+        .__privateViewSelectionMouseMove
+    ) {
+      document.removeEventListener(
+        'mousemove',
+        privateWindow
+          .__privateViewSelectionMouseMove,
+        true,
+      );
+    }
+
+    privateWindow
+      .__privateViewSelectionObserver
+      ?.disconnect();
+
+    if (
+      privateWindow
+        .__privateViewSelectionFrame
+    ) {
+      window.cancelAnimationFrame(
+        privateWindow
+          .__privateViewSelectionFrame,
+      );
+    }
+
+    // Small reveal around the cursor.
+    const cursorRadius = 32;
+    const cursorFeather = 29;
+
+    // Extra spacing around a detected tooltip.
+    const popupPadding = 8;
+
+    // Maximum distance between cursor and tooltip.
+    const popupDetectionDistance = 90;
+
+    let mouseX =
+      window.innerWidth / 2;
+
+    let mouseY =
+      window.innerHeight / 2;
+
+    const popupSelectors = [
+      '[role="tooltip"]',
+      '[role="menu"]',
+      '[role="dialog"]',
+      '[role="listbox"]',
+      '[role="alert"]',
+      '[role="status"]',
+      '[aria-live="polite"]',
+      '[aria-live="assertive"]',
+      '[data-radix-popper-content-wrapper]',
+      '[data-popper-placement]',
+    ].join(',');
+
+    const isVisibleElement = (
+      element: HTMLElement,
+    ): boolean => {
+      const rect =
+        element.getBoundingClientRect();
+
+      const style =
+        window.getComputedStyle(element);
+
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity || '1') > 0
+      );
+    };
+
+    const distanceFromRect = (
+      rect: DOMRect,
+    ): number => {
+      const nearestX = Math.max(
+        rect.left,
+        Math.min(mouseX, rect.right),
+      );
+
+      const nearestY = Math.max(
+        rect.top,
+        Math.min(mouseY, rect.bottom),
+      );
+
+      return Math.hypot(
+        mouseX - nearestX,
+        mouseY - nearestY,
+      );
+    };
+
+    const findPopupNearCursor =
+      (): HTMLElement | null => {
+        const candidates =
+          document
+            .querySelectorAll<HTMLElement>(
+              popupSelectors,
+            );
+
+        let nearestElement:
+          | HTMLElement
+          | null = null;
+
+        let nearestDistance =
+          Number.POSITIVE_INFINITY;
+
+        candidates.forEach((element) => {
+          if (
+            element === selectionRoot ||
+            selectionRoot.contains(element) ||
+            element === picker ||
+            picker.contains(element)
+          ) {
+            return;
+          }
+
+          if (!isVisibleElement(element)) {
+            return;
+          }
+
+          const rect =
+            element.getBoundingClientRect();
+
+          const distance =
+            distanceFromRect(rect);
+
+          if (
+            distance <=
+              popupDetectionDistance &&
+            distance < nearestDistance
+          ) {
+            nearestDistance = distance;
+            nearestElement = element;
+          }
+        });
+
+        return nearestElement;
+      };
+
+    const createRectangularMask = (
+      panelWidth: number,
+      panelHeight: number,
+      holeLeft: number,
+      holeTop: number,
+      holeWidth: number,
+      holeHeight: number,
+    ): string | null => {
+      const left = Math.max(
+        0,
+        holeLeft,
+      );
+
+      const top = Math.max(
+        0,
+        holeTop,
+      );
+
+      const right = Math.min(
+        panelWidth,
+        holeLeft + holeWidth,
+      );
+
+      const bottom = Math.min(
+        panelHeight,
+        holeTop + holeHeight,
+      );
+
+      const width = Math.max(
+        0,
+        right - left,
+      );
+
+      const height = Math.max(
+        0,
+        bottom - top,
+      );
+
+      if (
+        width <= 0 ||
+        height <= 0
+      ) {
+        return null;
+      }
+
+      const svg = `
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="${panelWidth}"
+          height="${panelHeight}"
+          viewBox="0 0 ${panelWidth} ${panelHeight}"
+        >
+          <mask
+            id="privateViewMask"
+            maskUnits="userSpaceOnUse"
+            x="0"
+            y="0"
+            width="${panelWidth}"
+            height="${panelHeight}"
+          >
+            <rect
+              x="0"
+              y="0"
+              width="${panelWidth}"
+              height="${panelHeight}"
+              fill="white"
+            />
+
+            <rect
+              x="${left}"
+              y="${top}"
+              width="${width}"
+              height="${height}"
+              rx="15"
+              fill="black"
+            />
+          </mask>
+
+          <rect
+            x="0"
+            y="0"
+            width="${panelWidth}"
+            height="${panelHeight}"
+            fill="white"
+            mask="url(#privateViewMask)"
+          />
+        </svg>
+      `;
+
+      return (
+        `url("data:image/svg+xml,` +
+        `${encodeURIComponent(svg)}")`
+      );
+    };
+
+    const applyCursorMask = (
+      panel: HTMLElement,
+      panelRect: DOMRect,
+    ): void => {
+      const localX =
+        mouseX - panelRect.left;
+
+      const localY =
+        mouseY - panelRect.top;
+
+      const mask = `
+        radial-gradient(
+          circle at ${localX}px ${localY}px,
+          transparent 0px,
+          transparent ${cursorRadius}px,
+          black ${
+            cursorRadius +
+            cursorFeather
+          }px
+        )
+      `;
+
+      panel.style.setProperty(
+        'mask-image',
+        mask,
+      );
+
+      panel.style.setProperty(
+        '-webkit-mask-image',
+        mask,
+      );
+
+      panel.style.removeProperty(
+        'mask-repeat',
+      );
+
+      panel.style.removeProperty(
+        '-webkit-mask-repeat',
+      );
+
+      panel.style.removeProperty(
+        'mask-size',
+      );
+
+      panel.style.removeProperty(
+        '-webkit-mask-size',
+      );
+    };
+
+    const applyPopupMask = (
+      panel: HTMLElement,
+      panelRect: DOMRect,
+      popupRect: DOMRect,
+    ): void => {
+      const localLeft =
+        popupRect.left -
+        panelRect.left -
+        popupPadding;
+
+      const localTop =
+        popupRect.top -
+        panelRect.top -
+        popupPadding;
+
+      const mask =
+        createRectangularMask(
+          panelRect.width,
+          panelRect.height,
+          localLeft,
+          localTop,
+          popupRect.width +
+            popupPadding * 2,
+          popupRect.height +
+            popupPadding * 2,
+        );
+
+      // Popup does not intersect this panel.
+      if (!mask) {
+        panel.style.removeProperty(
+          'mask-image',
+        );
+
+        panel.style.removeProperty(
+          '-webkit-mask-image',
+        );
+
+        return;
+      }
+
+      panel.style.setProperty(
+        'mask-image',
+        mask,
+      );
+
+      panel.style.setProperty(
+        '-webkit-mask-image',
+        mask,
+      );
+
+      panel.style.setProperty(
+        'mask-repeat',
+        'no-repeat',
+      );
+
+      panel.style.setProperty(
+        '-webkit-mask-repeat',
+        'no-repeat',
+      );
+
+      panel.style.setProperty(
+        'mask-size',
+        '100% 100%',
+      );
+
+      panel.style.setProperty(
+        '-webkit-mask-size',
+        '100% 100%',
+      );
+    };
+
+    const renderReveal = (): void => {
+      privateWindow
+        .__privateViewSelectionFrame =
+        0;
+
+      if (!selectionRoot.isConnected) {
+        privateWindow
+          .__privateViewSelectionObserver
+          ?.disconnect();
+
+        return;
+      }
+
+      const popup =
+        findPopupNearCursor();
+
+      const popupRect =
+        popup?.getBoundingClientRect() ??
+        null;
+
+      const panels =
+        selectionRoot
+          .querySelectorAll<HTMLElement>(
+            '[data-private-view-selection-panel="true"]',
+          );
+
+      panels.forEach((panel) => {
+        const panelRect =
+          panel.getBoundingClientRect();
+
+        if (
+          panelRect.width <= 0 ||
+          panelRect.height <= 0
+        ) {
+          return;
+        }
+
+        if (popupRect) {
+          applyPopupMask(
+            panel,
+            panelRect,
+            popupRect,
+          );
+
+          return;
+        }
+
+        applyCursorMask(
+          panel,
+          panelRect,
+        );
+      });
+    };
+
+    const scheduleRender = (): void => {
+      if (
+        privateWindow
+          .__privateViewSelectionFrame
+      ) {
+        return;
+      }
+
+      privateWindow
+        .__privateViewSelectionFrame =
+        window.requestAnimationFrame(
+          renderReveal,
+        );
+    };
+
+    const handleMouseMove = (
+      event: MouseEvent,
+    ): void => {
+      mouseX = event.clientX;
+      mouseY = event.clientY;
+
+      scheduleRender();
+    };
+
+    privateWindow
+      .__privateViewSelectionMouseMove =
+      handleMouseMove;
+
+    document.addEventListener(
+      'mousemove',
+      handleMouseMove,
+      {
+        capture: true,
+        passive: true,
+      },
+    );
+
+    const observer =
+      new MutationObserver(() => {
+        scheduleRender();
+      });
+
+    observer.observe(
+      document.documentElement,
+      {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: [
+          'class',
+          'style',
+          'role',
+          'aria-hidden',
+          'aria-expanded',
+        ],
+      },
+    );
+
+    privateWindow
+      .__privateViewSelectionObserver =
+      observer;
+
+    scheduleRender();
   };
 
   const renderSelectionBlur = (
@@ -450,7 +1011,8 @@ function startSelectionPicker(
     const bottomPanel =
       createBlurPanel({
         top: `${
-          rect.top + rect.height
+          rect.top +
+          rect.height
         }px`,
         left: '0',
         right: '0',
@@ -469,7 +1031,8 @@ function startSelectionPicker(
       createBlurPanel({
         top: `${rect.top}px`,
         left: `${
-          rect.left + rect.width
+          rect.left +
+          rect.width
         }px`,
         right: '0',
         height: `${rect.height}px`,
@@ -503,6 +1066,8 @@ function startSelectionPicker(
     document.documentElement.appendChild(
       root,
     );
+
+    enableSmartCursorReveal(root);
   };
 
   function cleanupPicker(): void {
@@ -619,13 +1184,16 @@ function startSelectionPicker(
         startX,
         endX,
       ),
+
       top: Math.min(
         startY,
         endY,
       ),
+
       width: Math.abs(
         endX - startX,
       ),
+
       height: Math.abs(
         endY - startY,
       ),
@@ -719,6 +1287,19 @@ function disableSelectionBlur(
   selectionId: string,
   pickerId: string,
 ): void {
+  type PrivateViewWindow = Window & {
+    __privateViewSelectionMouseHandler?: (
+      event: MouseEvent,
+    ) => void;
+
+    __privateViewSelectionLeaveHandler?: () => void;
+
+    __privateViewSelectionAnimationFrame?: number;
+  };
+
+  const privateWindow =
+    window as PrivateViewWindow;
+
   document
     .getElementById(selectionId)
     ?.remove();
@@ -726,6 +1307,49 @@ function disableSelectionBlur(
   document
     .getElementById(pickerId)
     ?.remove();
+
+  if (
+    privateWindow
+      .__privateViewSelectionMouseHandler
+  ) {
+    document.removeEventListener(
+      'mousemove',
+      privateWindow
+        .__privateViewSelectionMouseHandler,
+      true,
+    );
+
+    delete privateWindow
+      .__privateViewSelectionMouseHandler;
+  }
+
+  if (
+    privateWindow
+      .__privateViewSelectionLeaveHandler
+  ) {
+    document.removeEventListener(
+      'mouseleave',
+      privateWindow
+        .__privateViewSelectionLeaveHandler,
+      true,
+    );
+
+    delete privateWindow
+      .__privateViewSelectionLeaveHandler;
+  }
+
+  if (
+    privateWindow
+      .__privateViewSelectionAnimationFrame
+  ) {
+    cancelAnimationFrame(
+      privateWindow
+        .__privateViewSelectionAnimationFrame,
+    );
+
+    delete privateWindow
+      .__privateViewSelectionAnimationFrame;
+  }
 }
 
 function installPrivateViewEscapeHandler(
@@ -834,7 +1458,14 @@ async function applySpotlightToCurrentTab(
     ],
   });
 }
+async function showToastOnCurrentTab(): Promise<void> {
+  const tabId = await getActiveTabId();
 
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: showPrivateViewToast,
+  });
+}
 async function removeSpotlightFromCurrentTab():
 Promise<void> {
   const tabId =
@@ -1236,11 +1867,12 @@ function App() {
           'spotlight'
         ) {
           await removeSelectionFromCurrentTab();
-
+          
           await applySpotlightToCurrentTab(
             blurAmount,
             spotlightSize,
           );
+          await showToastOnCurrentTab();
         }
 
         if (
@@ -1252,6 +1884,7 @@ function App() {
           await startSelectionOnCurrentTab(
             blurAmount,
           );
+          await showToastOnCurrentTab();
         }
 
         setEnabled(true);
@@ -1359,6 +1992,7 @@ function App() {
         await startSelectionOnCurrentTab(
           blurAmount,
         );
+         
 
         setEnabled(true);
 
